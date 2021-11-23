@@ -1,0 +1,8 @@
+---
+raspberrypi_timezone: America/Los_Angeles
+
+raspberrypi_keyboard: us
+raspberrypi_locale: en_US.UTF-8
+raspberrypi_wifi_country: US
+
+raspberrypi_gpumem: 16

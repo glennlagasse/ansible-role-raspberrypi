@@ -1,0 +1,16 @@
+---
+- name: Enable dphys-swapfile
+  ansible.builtin.systemd:
+    name: dphys-swapfile
+    state: started
+    enabled: yes
+  become: yes
+  when: not raspberrypi_disable_swap| d(false) | bool
+
+- name: Disable dphys-swapfile
+  ansible.builtin.systemd:
+    name: dphys-swapfile
+    state: stopped
+    enabled: no
+  become: yes
+  when: raspberrypi_disable_swap| d(false) | bool

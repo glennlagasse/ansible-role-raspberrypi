@@ -1,0 +1,10 @@
+---
+- name: Restart cron
+  ansible.builtin.systemd:
+    name: cron
+    state: restarted
+  become: true
+
+- name: Reboot
+  ansible.builtin.reboot:
+  become: true

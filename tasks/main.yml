@@ -1,0 +1,175 @@
+---
+# TODO:
+#  - Allow configuring static ip
+#  - Allow overriding default behaviour per-host (ex. allow a host var override to not disable Avahi for instance)
+#  - Enable/Disable swap (dphys-swapfile)
+- name: Remove user 'pi'
+  ansible.builtin.user:
+    name: pi
+    state: absent
+    remove: yes
+    force: yes
+  become: true
+    
+- name: Remove /etc/sudoers.d/010_pi-nopasswd
+  ansible.builtin.file:
+    path: /etc/sudoers.d/010_pi-nopasswd
+    state: absent
+  become: true
+
+- name: Configure timezone
+  ansible.builtin.timezone:
+    name: "{{ raspberrypi_timezone }}"
+  become: true
+  notify: Restart cron
+
+- name: Check keyboard configuration
+  ansible.builtin.lineinfile:
+    path: /etc/default/keyboard
+    regexp: '^XKBLAYOUT=\"us\"'
+    state: absent
+  check_mode: yes
+  changed_when: false
+  register: keyboard
+
+- name: raspi-config | Configure keyboard
+  ansible.builtin.command: /usr/bin/raspi-config nonint do_configure_keyboard us
+  become: true
+  when: not keyboard.found
+
+- name: Check locale configuration
+  ansible.builtin.lineinfile:
+    path: /etc/default/locale
+    regexp: '^LANG={{ raspberrypi_locale }}'
+    state: absent
+  check_mode: yes
+  changed_when: false
+  register: locale
+
+- name: raspi-config | Configure locale
+  ansible.builtin.command: /usr/bin/raspi-config nonint do_change_locale {{ raspberrypi_locale }}
+  become: true
+  when: not locale.found
+
+- name: Check GPU Memory Split configuration
+  ansible.builtin.lineinfile:
+    path: /boot/config.txt
+    regexp: '^gpu_mem={{ raspberrypi_gpumem }}'
+    state: absent
+  check_mode: yes
+  changed_when: false
+  register: gpu_mem
+
+- name: raspi-config | Configure GPU Memory Split
+  ansible.builtin.command: /usr/bin/raspi-config nonint do_memory_split {{ raspberrypi_gpumem }}
+  become: true
+  notify: Reboot
+  when: not gpu_mem.found
+
+- name: Check Wifi Country Setting
+  ansible.builtin.lineinfile:
+    path: /etc/wpa_supplicant/wpa_supplicant.conf
+    regexp: '^country={{ raspberrypi_wifi_country }}'
+    state: absent
+  become: true
+  check_mode: yes
+  changed_when: false
+  register: wifi
+
+- name: raspi-config | Configure wifi_country
+  ansible.builtin.command: /usr/bin/raspi-config nonint do_wifi_country {{ raspberrypi_wifi_country }}
+  become: true
+  when: not wifi.found
+
+- name: Disable audio
+  ansible.builtin.lineinfile:
+    dest: /boot/config.txt
+    regexp: '^dtparam=audio='
+    line: 'dtparam=audio=off'
+    state: present
+  become: true
+  notify: Reboot
+
+- name: Disable Bluetooth
+  ansible.builtin.lineinfile:
+    path: /boot/config.txt
+    regexp: '^dtoverlay=disable-bt'
+    line: 'dtoverlay=disable-bt'
+    state: present
+  become: true
+  notify: Reboot
+
+- name: Disable hciuart
+  ansible.builtin.systemd:
+    name: hciuart
+    state: stopped
+    enabled: no
+  become: true
+
+- name: Check Serial configuration
+  ansible.builtin.lineinfile:
+    path: /boot/cmdline.txt
+    regexp: '^console=serial0,115200'
+    state: absent
+  check_mode: yes
+  changed_when: false
+  register: serial
+
+- name: raspi-config | Disable Serial Console
+  ansible.builtin.command: /usr/bin/raspi-config nonint do_serial 1
+  become: true
+  notify: Reboot
+  when: serial.found
+
+- name: Disable serial-getty@ttyAMA0.service
+  ansible.builtin.systemd:
+    name: serial-getty@ttyAMA0.service
+    state: stopped
+    enabled: no
+    masked: yes
+  become: true
+  when: serial.found
+
+- name: Disable avahi-daemon
+  ansible.builtin.systemd:
+    name: avahi-daemon
+    state: stopped
+    enabled: no
+  become: true
+
+- name: Uninstall triggerhappy daemon
+  ansible.builtin.apt:
+    name: triggerhappy
+    state: absent
+    purge: yes
+  become: true
+
+- name: Disable WIFI
+  block:
+    - name: Disable WIFI | Modify /boot/config.txt
+      ansible.builtin.lineinfile:
+        path: /boot/config.txt
+        regexp: '^dtoverlay=disable-wifi'
+        line: 'dtoverlay=disable-wifi'
+        state: present
+      notify: Reboot
+
+    - name: Disable WIFI | Disable wpa_supplicant
+      ansible.builtin.systemd:
+        name: wpa_supplicant
+        state: stopped
+        enabled: no
+  become: true
+  when: not ansible_default_ipv4['interface'] is search('wlan0')
+
+- name: Disable wifi interface power saving
+  ansible.builtin.lineinfile:
+    path: /etc/rc.local
+    line: /usr/sbin/iwconfig wlan0 power off
+    regexp: '^/usr/sbin/iwconfig '
+    insertbefore: '^exit 0'
+  become: true
+  notify: Reboot
+  when: ansible_default_ipv4['interface'] is search('wlan0')
+
+- import_tasks: swap.yml
